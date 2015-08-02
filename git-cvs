@@ -1,0 +1,423 @@
+#!/bin/sh -e
+# vim:se tw=78 ai sts=2 et:
+
+gitdir="gitdir"
+cvsdir="cvsdir"
+rsyncdir="rsyncdir"
+GITCVSRC=".gitcvsrc"
+MASTER="master"
+CWD=`pwd`
+
+timestamp () {
+date -u +%Y%m%d_%H%M%S 
+}
+
+gitcvshelp() {
+cat - <<EOF
+git-cvs - bidirectional operations between a single CVS tree and git
+
+usage: git cvs <command> [<optarg1> [<optarg2> [<optarg3>]]]
+
+Available commands:
+
+init    Initialize the local git repository only with the latest snapshot
+        source checked out from the remote CVS repository to start the
+        approach 1 workflow.  This does not use the cvsps command to be fast
+        and does not require the SSH access to the remote CVS repository.
+        Here:
+          * <optarg1> : \$CVSROOT (required)
+          * <optarg2> : \$MODULE  (required)
+          * <optarg3> : alternative name for the rabase branch (opt.)
+        Remote CVS parameters \$CVSROOT and \$MODULE are the ones used as:
+          \$ cvs -d \$CVSROOT checkout \$MODULE
+        This command creates the \$MODULE/ directory to store the source.
+        The "master" branch tracks the HEAD of thev remote CVS repository.
+        The \$MODULE/.git/.gitcvsrc records the git-cvs parameter.
+
+sync    Initialize the local git repository with the complete history of the
+        remote CVS repository to start the approach 2 workflow as follows.
+
+        Remote CVS -> rsync -> Local CVS -> git-cvsimport (cvsps) ->+
+                ^     (ssh)           |                             :
+                |                     +-> cvs checkout ->+         hack
+                |                                        |          :
+                +<------------ git-cvsexportcommit <-----+<---------+ 
+        Here:
+          * <optarg1> : \$CVSROOT (required)
+          * <optarg2> : \$MODULE  (required)
+          * <optarg3> : use "<optarg3>/master" instead of "cvs/master" (opt.)
+        Remote CVS parameters \$CVSROOT and \$MODULE are the ones used as:
+          \$ cvs -d :ext:\$CVSROOT checkout \$MODULE
+        This command creates 3 directories: rsyncdir/ cvsdir/ gitdir/
+          * rsyncdir/ : the local mirror of the CVS repository
+          * cvsdir/   : the CVS checkout
+          * gitdir/   : the local git repository (no CVS/* files)
+            * "cvs/master" branch : track the remote CVS repository
+            * "master" branch     : track the local changes
+        Try gitk in the gitdir/ directory to see the full project history.
+        The .gitcvsrc records the git-cvs parameter.
+
+update  Update the local git repository by the latest remote CVS repository.
+        For approach 1, execute this in the \$MODULE directory.
+        For approach 2, execute this in the gitdir/ directory.
+        This is the default action without <command>.
+
+rebase  Update the local git repository by the latest remote CVS repository
+        as in "git cvs update" and rebase the local changes to the remote CVS
+        HEAD.
+
+dcommit Commit from the local git repository to the remote CVS repository.
+        The CVS commit happens on each git commit.  So make sure to organize
+        pending git commits using "git rebase -i ..." in advance.
+        For approach 1, execute this in the \$MODULE directory.
+        For approach 2, execute this in the gitdir/ directory.
+
+Note:   For approach 1, the git and cvs packages are required.
+        For approach 2, the rsync, ssh, git, cvs, and cvsps packages are
+        required.
+
+        You can prefix <command> with "Debug " to enable the shell trace.
+        Commands may be shorted to the first character. (case sensitive)
+
+        If the value of the CVS keyword expansion (e.g. $Revision$) needs to
+        be identified, please seek it in the CVS/Entries file.
+
+EOF
+}
+
+#############################################################################
+# parse commands (modeled after git-svn)
+case ${1} in
+  D*)
+  echo "I: enable the shell trace for debug"
+  shift ; set -x
+esac
+GITCVSCMD=${1:-update} # if no argument, assume it to be "update".
+case $GITCVSCMD in
+  i*) # initialize
+  GITCVSCMD="init"
+  ;;
+  s*) # synchronize
+  GITCVSCMD="sync"
+  ;;
+  r*) # rebase
+  GITCVSCMD="rebase"
+  ;;
+  u*|f*) # update (accept fetch as alias)
+  GITCVSCMD="update"
+  ;;
+  d*|c*) # dcommit (accept commit as alias)
+  GITCVSCMD="dcommit"
+  ;;
+  *) # others
+  gitcvshelp
+  exit 0
+  ;;
+esac
+#############################################################################
+# git cvs init
+if [ "$GITCVSCMD" = "init" ]; then
+  echo "I: === approach 1 === create a git repository @ ${CWD}"
+  CVSROOT=${2}
+  MODULE=${3}
+  if [ -z "$CVSROOT" ]; then
+    echo "E: missing arguments: \$CVSROOT \$MODULE"
+    echo ""
+    gitcvshelp
+    exit 1
+  fi
+  if [ -z "$MODULE" ]; then
+    echo "E: missing an argument: \$MODULE"
+    echo ""
+    gitcvshelp
+    exit 1
+  fi
+  shift ; shift
+  REBASE=${2:-rebase} # put your local changes
+  echo "I: cvs -d ${CVSROOT} checkout -P -kk $MODULE"
+  cvs -d ${CVSROOT} checkout -P -kk $MODULE
+  echo "I: make a git repository in: ${CWD}/$MODULE"
+  cd ${CWD}/$MODULE
+  git init
+  # this avoids the CVS command to break the git repository
+  echo "CVS" >.git/info/exclude
+  git add -A .
+  git commit -m "initial import"
+  git checkout -b $REBASE
+  echo "I: resource file for git-cvs: $MODULE/.git/$GITCVSRC"
+  echo "# These parameters are set by the git-cvs init command" > .git/$GITCVSRC
+  echo "REBASE=$REBASE"   >> .git/$GITCVSRC
+  echo "I: Please execute \"cd ./$MODULE\" before working on the source"
+  echo "I: => \"$REBASE\" branch for local changes"
+  echo "I: => \"master\" branch to track the remote CVS snapshot."
+  exit 0
+fi
+#############################################################################
+# git cvs sync
+if [ "$GITCVSCMD" = "sync" ]; then
+  echo "I: === approach 2 === create files for rsync, cvs, and git @ ${CWD}"
+  CVSROOT=${2}
+  MODULE=${3}
+  if [ -z "$CVSROOT" ]; then
+    echo "E: missing arguments: \$CVSROOT \$MODULE"
+    echo ""
+    gitcvshelp
+    exit 1
+  fi
+  if [ -z "$MODULE" ]; then
+    echo "E: missing an argument: \$MODULE"
+    echo ""
+    gitcvshelp
+    exit 1
+  fi
+  shift ; shift
+  CVS=${2:-cvs}       # track the upstream CVS repository
+  echo "I: rsync ... from ${CVSROOT} to make a local CVS mirror at $rsyncdir"
+  rsync -avS --delete --delay-updates --rsh=ssh ${CVSROOT}/. $rsyncdir
+  echo "I: git cvsimport from the local CVS mirror"
+  git cvsimport -akmRv -d ${CWD}/$rsyncdir -C $gitdir -r $CVS $MODULE
+  echo "I: make a CVS checkout at: $cvsdir"
+  cvs -d ${CWD}/$rsyncdir checkout -P -kk -d $cvsdir $MODULE
+  echo "I: resource file for git-cvs: $GITCVSRC"
+  echo "# These parameters are set by the git-cvs rsync command" > $GITCVSRC
+  echo "CVSROOT=$CVSROOT" >> $GITCVSRC
+  echo "MODULE=$MODULE"   >> $GITCVSRC
+  echo "CVS=$CVS"   >> $GITCVSRC
+  echo "I: Please execute \"cd ./$gitdir\" before working on the source"
+  echo "I: => \"master\" branch for local changes"
+  echo "I: => \"$CVS/master\" branch to track the remote CVS snapshot."
+  exit 0
+fi
+#############################################################################
+if [ -d "CVS" ]; then
+  echo "I: === approach 1 === @ ${CWD}"
+  # approach 1
+  if [ ! -d "${CWD}/.git" ]; then
+    if [ -n "${1}" ]; then
+      echo "E: run this from the directory containing .git/."
+      exit 1
+    else
+      gitcvshelp
+      exit 1
+    fi
+  fi
+  if [ -r ".git/$GITCVSRC" ]; then
+    . ".git/$GITCVSRC"
+  else
+    echo "E: missing resource file: .git/$GITCVSRC"
+    exit 1
+  fi
+  if git branch | grep -e "\"^. ${REBASE}\$\"" >/dev/null ; then
+    echo "E: missing the local commit branch: \"${REBASE}\"."
+    exit 1
+  elif git branch | grep -e "\"^\* ${REBASE}\$\"" >/dev/null ; then
+    echo "E: not on the local commit branch: \"${REBASE}\"."
+    exit 1
+  else
+    echo "I: on the local commit branch: \"${REBASE}\"."
+  fi
+  HREBASE0=`git rev-parse ${REBASE}`
+  echo "I: old hash \"${REBASE}\" = $HREBASE0"
+  if git branch | grep -e "\"^. ${MASTER}\$\"" >/dev/null ; then
+    echo "E: missing the CVS tracking branch: \"${MASTER}\"."
+    exit 1
+  else
+    echo "I: the CVS tracking branch: \"${MASTER}\"."
+  fi
+  if git diff --quiet HEAD ; then
+    echo "I: all changes commited to the git repository: ${CWD}"
+  else
+    echo "E: uncommited changes in the git repository: ${CWD}"
+    exit 1
+  fi
+  HMASTER0=`git rev-parse ${MASTER}`
+  echo "I: old hash \"${MASTER}\" = $HMASTER0"
+  if [ "$GITCVSCMD" = "rebase" -o "$GITCVSCMD" = "update" ]; then
+    echo "I: cvs update ... from the remore CVS repository"
+    echo "I: => do not worry about \"? .git\" in the following."
+    cvs update -PdA -kk
+    git add -A .
+    MES="new cvs HEAD $(timestamp)"
+    if git commit -m "${MES}"; then
+      echo "I: make commit: ${MES}"
+    else
+      echo "I: no git commit since no change"
+    fi
+    HMASTER1=`git rev-parse ${MASTER}`
+    echo "I: new hash \"${MASTER}\" = $HMASTER1"
+    echo "I: checkout the \"${REBASE}\" branch"
+    git checkout ${REBASE}
+    git reset --hard ${REBASE}
+    git clean -f
+    if [ "$HMASTER0" != "$HMASTER1" ]; then
+      if [ "$GITCVSCMD" = "rebase" ]; then
+        echo "I: update the \"${REBASE}\" branch by the \"${MASTER}\" branch"
+        git rebase ${MASTER}
+        HREBASE01=`git rev-parse ${REBASE}`
+        echo "I: new hash \"${REBASE}\" = $HREBASE1"
+      else
+        echo "I: please run \"git rebase ${MASTER}\""
+      fi
+    else
+      echo "I: no change in the remote CVS repository"
+    fi
+  elif [ "$GITCVSCMD" = "dcommit" ]; then
+    if [ "$HMASTER0" != "$HREBASE0" ]; then
+      echo "I: git cvsexportcommit ... with commits in the \"${REBASE}\" branch"
+      git cherry ${MASTER} ${REBASE} | sed -n 's/^+ //p' | \
+        xargs --no-run-if-empty -l1 \
+        git cvsexportcommit -ckpvW
+      echo "I: checkout the \"${MASTER}\" branch"
+      git checkout ${MASTER}
+      git reset --hard ${MASTER}
+      git clean -f
+      echo "I: cvs update ... from the remore CVS repository"
+      echo "I: => do not worry about \"? .git\" in the following."
+      cvs update -PdA -kk
+      git add -A .
+      MES="new cvs HEAD: $(timestamp)"
+      if git commit -m "${MES}"; then
+        echo "I: make commit: ${MES}"
+        HMASTER1=`git rev-parse ${MASTER}`
+        echo "I: new hash \"${MASTER}\" = $HMASTER1"
+        echo "I: reset the \"${REBASE}\" branch to the current \"${MASTER}\" branch"
+        git checkout -B ${REBASE}
+      else
+        echo "W: no change in the remote CVS repository (strange)"
+        echo "I: checkout the \"${REBASE}\" branch"
+        git checkout ${REBASE}
+        git reset --hard ${REBASE}
+        git clean -f
+      fi
+      HREBASE1=`git rev-parse ${REBASE}`
+      echo "I: new hash \"${REBASE}\" = $HREBASE1"
+    else
+      echo "I: no change in the local git repository"
+    fi
+  else
+    echo "E: strange command: git cvs $GITCVSCMD"
+    exit 1
+  fi
+#############################################################################
+elif [ "$(basename `realpath .`)" = "$gitdir" -o -d "${CWD}/$gitdir" ]; then
+  if [ -d "${CWD}/$gitdir" ]; then
+    # allow not starting from $gitdir
+    cd "${CWD}/$gitdir"
+  else
+    # set CWD to the shared root directory
+    CWD="`realpath ${CWD}/..`"
+  fi
+  echo "I: === approach 2 === @ ${CWD}"
+  if [ ! -d "${CWD}/.git" ]; then
+    if [ -n "${1}" ]; then
+      echo "E: run this from the directory containing .git/."
+      exit 1
+    else
+      gitcvshelp
+      exit 1
+    fi
+  fi
+  if [ -r "${CWD}/$GITCVSRC" ]; then
+    . "${CWD}/$GITCVSRC"
+  else
+    echo "E: missing resource file: ${CWD}/$GITCVSRC"
+    exit 1
+  fi
+  if [ ! -d "${CWD}/$rsyncdir" ]; then
+    echo "E: missing the local CVS repository: ${CWD}/$rsyncdir"
+    exit 1
+  fi
+  if [ ! -d "${CWD}/$cvsdir" ]; then
+    echo "E: missing the local CVS checkout: ${CWD}/$cvsdir"
+    exit 1
+  fi
+  if git branch -r| grep -e "\"^  ${CVS}/master\$\"" >/dev/null ; then
+    echo "E: missing the CVS tracking branch: \"${CVS}/master\"."
+    exit 1
+  else
+    echo "I: the CVS tracking branch: \"${CVS}/master\"."
+  fi
+  HCVS0=`git rev-parse ${CVS}/master`
+  echo "I: old hash \"${CVS}/master\" = $HCVS0"
+  if git branch | grep -e "\"^. ${MASTER}\$\"" >/dev/null ; then
+    echo "E: missing the local commit branch: \"${MASTER}\"."
+    exit 1
+  elif git branch | grep -e "\"^\* ${MASTER}\$\"" >/dev/null ; then
+    echo "E: not on the local commit branch: \"${MASTER}\"."
+    exit 1
+  else
+    echo "I: on the local commit branch: \"${MASTER}\"."
+  fi
+  if git diff --quiet HEAD ; then
+    echo "I: all changes commited to the git repository: ${CWD}/$gitdir"
+  else
+    echo "E: uncommited changes in the git repository: ${CWD}/$gitdir"
+    exit 1
+  fi
+  HMASTER0=`git rev-parse ${MASTER}`
+  echo "I: old hash \"${MASTER}\" = $HMASTER0"
+  if [ "$GITCVSCMD" = "rebase" -o "$GITCVSCMD" = "update" ]; then
+    echo "I: cd ${CWD}"
+    cd ${CWD}
+    echo "I: update the local CVS mirror: $rsyncdir"
+    rsync -avS --delete --delay-updates --rsh=ssh ${CVSROOT}/. $rsyncdir
+    echo "I: cvsimport to the git repository: $gitdir"
+    git cvsimport -akmRv -d ${CWD}/$rsyncdir -C $gitdir -r $CVS $MODULE
+    HCVS1=`cd ${CWD}/$gitdir ;git rev-parse $CVS/master`
+    echo "I: new hash \"${CVS}/master\" = $HCVS1"
+    echo "I: update the local CVS checkout: $cvsdir"
+    cvs -d ${CWD}/$rsyncdir checkout -P -kk -d $cvsdir $MODULE
+    echo "I: cd ${CWD}/$gitdir"
+    cd ${CWD}/$gitdir
+    if [ "$HCVS0" != "$HCVS1" ]; then
+      if [ "$GITCVSCMD" = "rebase" ]; then
+        echo "I: git rebase $CVS/master"
+        git rebase $CVS/master
+        HMASTER1=`git rev-parse ${MASTER}`
+        echo "I: new hash \"${MASTER}\" = $HMASTER1"
+      else
+        echo "I: please run \"git rebase $CVS/master\""
+      fi
+    else
+      echo "I: no change in the remote CVS repository"
+    fi
+  elif [ "$GITCVSCMD" = "dcommit" ]; then
+    if [ "$HMASTER0" != "$HCVS0" ]; then
+      # commit as a series of commits
+      echo "I: git cvsexportcommit ... with commits in the \"${MASTER}\" branch"
+      git cherry ${CVS}/master ${MASTER} | sed -n 's/^+ //p' | \
+        xargs --no-run-if-empty -l1 \
+        git cvsexportcommit -ckpv -d :ext:$CVSROOT -w ${CWD}/$cvsdir
+      echo "I: cd ${CWD}"
+      cd ${CWD}
+      echo "I: update the local CVS mirror: $rsyncdir"
+      rsync -avS --delete --delay-updates --rsh=ssh ${CVSROOT}/. $rsyncdir
+      echo "I: cvsimport to the git repository: $gitdir"
+      git cvsimport -akmRv -d ${CWD}/$rsyncdir -C $gitdir -r $CVS $MODULE
+      HCVS1=`cd ${CWD}/$gitdir ;git rev-parse $CVS/master`
+      echo "I: new hash \"${CVS}/master\" = $HCVS1"
+      cvs -d ${CWD}/$rsyncdir checkout -P -kk -d $cvsdir $MODULE
+      echo "I: cd ${CWD}/$gitdir"
+      cd ${CWD}/$gitdir
+      if [ "$HCVS0" != "$HCVS1" ]; then
+        echo "I: \"$CVS/master\" branch changed"
+        git checkout ${MASTER}
+        git reset --hard "$CVS/master"
+        git clean -f
+        HMASTER1=`git rev-parse ${MASTER}`
+        echo "I: new hash \"${MASTER}\" = $HMASTER1"
+      else
+        echo "W: No change in the \"$CVS/master\" branch (strange)"
+      fi
+    else
+      echo "I: no change in the local git repository"
+    fi
+  else
+    echo "E: strange command: git cvs $GITCVSCMD"
+    exit 1
+  fi
+else
+  echo "E: not managed by the \"git cvs ...\" command."
+  exit 1
+fi
+
