@@ -69,4 +69,6 @@ Access CVS using git (like git-svn)
     
             If the value of the CVS keyword expansion (e.g. $) needs to
             be identified, please seek it in the CVS/Entries file.
-    
+
+If you need to use host specific username, please export the USER environment
+variable to it or seek to set it via  ~/.ssh/config .  See ssh_config(5).
