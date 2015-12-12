@@ -77,3 +77,9 @@ If you don't have read access to some files in ${CVSROOT}/CVSROOT or
 ${CVSROOT}/$MODULE, you can't use approach 2.  Please pay attention to file
 permissions of the CVS repository for your account.
 
+If your remote account for CVS is "foo" at "cvs.example.org" and the data is
+stored in the "/srv/cvs" directory, set $CVSROOT in the above as
+
+  foo@cvs.example.org:/srv/cvs.
+
+The $MODULE should not have tailing /.
