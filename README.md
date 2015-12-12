@@ -72,3 +72,8 @@ Access CVS using git (like git-svn)
 
 If you need to use host specific username, please export the USER environment
 variable to it or seek to set it via  ~/.ssh/config .  See ssh_config(5).
+
+If you don't have read access to some files in ${CVSROOT}/CVSROOT or
+${CVSROOT}/$MODULE, you can't use approach 2.  Please pay attention to file
+permissions of the CVS repository for your account.
+

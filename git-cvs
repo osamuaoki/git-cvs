@@ -132,6 +132,10 @@ if [ "$GITCVSCMD" = "init" ]; then
     gitcvshelp
     exit 1
   fi
+  if [ "${MODULE%/}" != "$MODULE" ]; then
+    echo "E: the second argument should not have tailing /: $MODULE"
+    exit 1
+  fi
   shift ; shift
   REBASE=${2:-rebase} # put your local changes
   echo "I: cvs -d ${CVSROOT} checkout -P -kk $MODULE"
@@ -170,10 +174,14 @@ if [ "$GITCVSCMD" = "sync" ]; then
     gitcvshelp
     exit 1
   fi
+  if [ "${MODULE%/}" != "$MODULE" ]; then
+    echo "E: the second argument should not have tailing /: $MODULE"
+    exit 1
+  fi
   shift ; shift
   CVS=${2:-cvs}       # track the upstream CVS repository
   echo "I: rsync ... from ${CVSROOT} to make a local CVS mirror at $rsyncdir"
-  rsync -avS --delete --delay-updates --rsh=ssh ${CVSROOT}/. $rsyncdir
+  rsync -avS --delete --delay-updates --rsh=ssh ${CVSROOT}/CVSROOT ${CVSROOT}/$MODULE $rsyncdir
   echo "I: git cvsimport from the local CVS mirror"
   git cvsimport -akmRv -d ${CWD}/$rsyncdir -C $gitdir -r $CVS $MODULE
   echo "I: make a CVS checkout at: $cvsdir"
@@ -360,7 +368,7 @@ elif [ "$(basename `realpath .`)" = "$gitdir" -o -d "${CWD}/$gitdir" ]; then
     echo "I: cd ${CWD}"
     cd ${CWD}
     echo "I: update the local CVS mirror: $rsyncdir"
-    rsync -avS --delete --delay-updates --rsh=ssh ${CVSROOT}/. $rsyncdir
+    rsync -avS --delete --delay-updates --rsh=ssh ${CVSROOT}/CVSROOT ${CVSROOT}/$MODULE $rsyncdir
     echo "I: cvsimport to the git repository: $gitdir"
     git cvsimport -akmRv -d ${CWD}/$rsyncdir -C $gitdir -r $CVS $MODULE
     HCVS1=`cd ${CWD}/$gitdir ;git rev-parse $CVS/master`
@@ -391,7 +399,7 @@ elif [ "$(basename `realpath .`)" = "$gitdir" -o -d "${CWD}/$gitdir" ]; then
       echo "I: cd ${CWD}"
       cd ${CWD}
       echo "I: update the local CVS mirror: $rsyncdir"
-      rsync -avS --delete --delay-updates --rsh=ssh ${CVSROOT}/. $rsyncdir
+      rsync -avS --delete --delay-updates --rsh=ssh ${CVSROOT}/CVSROOT ${CVSROOT}/$MODULE $rsyncdir
       echo "I: cvsimport to the git repository: $gitdir"
       git cvsimport -akmRv -d ${CWD}/$rsyncdir -C $gitdir -r $CVS $MODULE
       HCVS1=`cd ${CWD}/$gitdir ;git rev-parse $CVS/master`
