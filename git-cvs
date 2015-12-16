@@ -83,6 +83,10 @@ Note:   For approach 1, the git and cvs packages are required.
         be identified, please seek it in the CVS/Entries file.
 
 EOF
+
+# tamper chack
+md5sum ${0}
+sha1sum ${0}
 }
 
 #############################################################################
