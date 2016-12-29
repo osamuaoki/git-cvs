@@ -83,3 +83,17 @@ stored in the "/srv/cvs" directory, set $CVSROOT in the above as
   foo@cvs.example.org:/srv/cvs.
 
 The $MODULE should not have tailing /.
+
+# References for CVS <--> GIT
+
+Here are some interesting things I found on the net.
+
+* GIT overview
+ * https://git.wiki.kernel.org/index.php/Interfaces,_frontends,_and_tools
+* git-cvsexportcommit
+ * https://lists.gnu.org/archive/html/bug-gnulib/2006-11/msg00363.html
+* git-cvsexportcommit -W
+ * http://vmiklos.hu/blog/new-in-git-1-5-6-git-cvsexportcommit-w.html
+* Bidirectional script (I did not read it yet)
+ * https://github.com/mikjo/bigitr
+
