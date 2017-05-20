@@ -80,9 +80,17 @@ permissions of the CVS repository for your account.
 If your remote account for CVS is "foo" at "cvs.example.org" and the data is
 stored in the "/srv/cvs" directory, set $CVSROOT in the above as
 
-  foo@cvs.example.org:/srv/cvs.
+    foo@cvs.example.org:/srv/cvs
 
-The $MODULE should not have tailing /.
+The $MODULE should not have tailing / .
+
+For example, if you have a CVS write access account for the Debian web page
+(https://www.debian.org/devel/website/)
+
+    $ export RSH=ssh
+    $ export CVSROOT=osamu@cvs.debian.org:/cvs/webwml
+    $ git cvs sync $CVSROOT webwml
+
 
 # References for CVS <--> GIT
 
