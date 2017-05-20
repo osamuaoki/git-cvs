@@ -84,13 +84,24 @@ stored in the "/srv/cvs" directory, set $CVSROOT in the above as
 
 The $MODULE should not have tailing / .
 
-For example, if you have a CVS write access account for the Debian web page
+For example, if you have a CVS write access account `foo` via `ssh` for the
+Debian web page hosted at cvs.debian.org
 (https://www.debian.org/devel/website/)
 
     $ export RSH=ssh
-    $ export CVSROOT=osamu@cvs.debian.org:/cvs/webwml
+    $ export CVSROOT=foo@cvs.debian.org:/cvs/webwml
     $ git cvs sync $CVSROOT webwml
 
+This gives a nice git repository with the full history.
+
+    $ tree --dirsfirst -aL 1
+    .
+    ├── cvsdir
+    ├── gitdir
+    ├── rsyncdir
+    └── .gitcvsrc
+    
+    3 directories, 1 file
 
 # References for CVS <--> GIT
 
