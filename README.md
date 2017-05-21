@@ -89,9 +89,8 @@ For example, if you have a CVS write access account `foo` via `ssh` for the
 Debian web page hosted at cvs.debian.org
 (https://www.debian.org/devel/website/)
 
-    $ export RSH=ssh
-    $ export CVSROOT=foo@cvs.debian.org:/cvs/webwml
-    $ git cvs sync $CVSROOT webwml
+    $ CVSROOT="foo@cvs.debian.org:/cvs/webwml"
+    $ git cvs sync "$CVSROOT" webwml
 
 This gives a nice git repository with the full history.
 
