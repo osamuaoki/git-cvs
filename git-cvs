@@ -85,7 +85,7 @@ Note:   For approach 1, the git and cvs packages are required.
 
 EOF
 
-# tamper chack
+# tamper check
 md5sum ${0}
 sha1sum ${0}
 }
@@ -98,6 +98,7 @@ case ${1} in
   shift ; set -x
 esac
 GITCVSCMD=${1:-update} # if no argument, assume it to be "update".
+shift
 case $GITCVSCMD in
   i*) # initialize
   GITCVSCMD="init"
@@ -123,8 +124,10 @@ esac
 # git cvs init
 if [ "$GITCVSCMD" = "init" ]; then
   echo "I: === approach 1 === create a git repository @ ${CWD}"
-  CVSROOT=${2}
-  MODULE=${3}
+  CVSROOT=${1}
+  shift
+  MODULE=${1}
+  shift
   if [ -z "$CVSROOT" ]; then
     echo "E: missing arguments: \$CVSROOT \$MODULE"
     echo ""
@@ -141,8 +144,7 @@ if [ "$GITCVSCMD" = "init" ]; then
     echo "E: the second argument should not have tailing /: $MODULE"
     exit 1
   fi
-  shift ; shift
-  REBASE=${2:-rebase} # put your local changes
+  REBASE=${1:-rebase} # put your local changes
   echo "I: cvs -d ${CVSROOT} checkout -P -kk $MODULE"
   cvs -d ${CVSROOT} checkout -P -kk $MODULE
   echo "I: make a git repository in: ${CWD}/$MODULE"
@@ -165,8 +167,10 @@ fi
 # git cvs sync
 if [ "$GITCVSCMD" = "sync" ]; then
   echo "I: === approach 2 === create files for rsync, cvs, and git @ ${CWD}"
-  CVSROOT=${2}
-  MODULE=${3}
+  CVSROOT=${1}
+  shift
+  MODULE=${1}
+  shift
   if [ -z "$CVSROOT" ]; then
     echo "E: missing arguments: \$CVSROOT \$MODULE"
     echo ""
@@ -183,8 +187,7 @@ if [ "$GITCVSCMD" = "sync" ]; then
     echo "E: the second argument should not have tailing /: $MODULE"
     exit 1
   fi
-  shift ; shift
-  CVS=${2:-cvs}       # track the upstream CVS repository
+  CVS=${1:-cvs}       # track the upstream CVS repository
   echo "I: rsync ... from ${CVSROOT} to make a local CVS mirror at $rsyncdir"
   rsync -avS --delete --delay-updates --rsh=ssh ${CVSROOT}/CVSROOT ${CVSROOT}/$MODULE $rsyncdir
   echo "I: git cvsimport from the local CVS mirror"
@@ -206,13 +209,9 @@ if [ -d "CVS" ]; then
   echo "I: === approach 1 === @ ${CWD}"
   # approach 1
   if [ ! -d "${CWD}/.git" ]; then
-    if [ -n "${1}" ]; then
-      echo "E: run this from the directory containing .git/."
-      exit 1
-    else
-      gitcvshelp
-      exit 1
-    fi
+    echo "E: run this from the directory containing .git/ and CVS/."
+    gitcvshelp
+    exit 1
   fi
   if [ -r ".git/$GITCVSRC" ]; then
     . ".git/$GITCVSRC"
@@ -238,15 +237,15 @@ if [ -d "CVS" ]; then
     echo "I: the CVS tracking branch: \"${MASTER}\"."
   fi
   if git diff --quiet HEAD ; then
-    echo "I: all changes commited to the git repository: ${CWD}"
+    echo "I: all changes committed to the git repository: ${CWD}"
   else
-    echo "E: uncommited changes in the git repository: ${CWD}"
+    echo "E: uncommitted changes in the git repository: ${CWD}"
     exit 1
   fi
   HMASTER0=`git rev-parse ${MASTER}`
   echo "I: old hash \"${MASTER}\" = $HMASTER0"
   if [ "$GITCVSCMD" = "rebase" -o "$GITCVSCMD" = "update" ]; then
-    echo "I: cvs update ... from the remore CVS repository"
+    echo "I: cvs update ... from the remote CVS repository"
     echo "I: => do not worry about \"? .git\" in the following."
     cvs update -PdA -kk
     git add -A .
@@ -284,7 +283,7 @@ if [ -d "CVS" ]; then
       git checkout ${MASTER}
       git reset --hard ${MASTER}
       git clean -f
-      echo "I: cvs update ... from the remore CVS repository"
+      echo "I: cvs update ... from the remote CVS repository"
       echo "I: => do not worry about \"? .git\" in the following."
       cvs update -PdA -kk
       git add -A .
@@ -316,32 +315,30 @@ elif [ "$(basename `realpath .`)" = "$gitdir" -o -d "${CWD}/$gitdir" ]; then
   if [ -d "${CWD}/$gitdir" ]; then
     # allow not starting from $gitdir
     cd "${CWD}/$gitdir"
+    # set SRD to the shared root directory
+    SRD="`realpath ${CWD}`"
   else
-    # set CWD to the shared root directory
-    CWD="`realpath ${CWD}/..`"
+    # set SRD to the shared root directory
+    SRD="`realpath ${CWD}/..`"
   fi
-  echo "I: === approach 2 === @ ${CWD}"
-  if [ ! -d "${CWD}/$gitdir/.git" ]; then
-    if [ -n "${1}" ]; then
-      echo "E: run this from the directory containing .git/."
-      exit 1
-    else
-      gitcvshelp
-      exit 1
-    fi
-  fi
-  if [ -r "${CWD}/$GITCVSRC" ]; then
-    . "${CWD}/$GITCVSRC"
-  else
-    echo "E: missing resource file: ${CWD}/$GITCVSRC"
+  echo "I: === approach 2 === @ ${SRD}"
+  if [ ! -d "${SRD}/$gitdir/.git" ]; then
+    echo "E: run this from the directory containing .git/ or $gitdir."
+    gitcvshelp
     exit 1
   fi
-  if [ ! -d "${CWD}/$rsyncdir" ]; then
-    echo "E: missing the local CVS repository: ${CWD}/$rsyncdir"
+  if [ -r "${SRD}/$GITCVSRC" ]; then
+    . "${SRD}/$GITCVSRC"
+  else
+    echo "E: missing resource file: ${SRD}/$GITCVSRC"
     exit 1
   fi
-  if [ ! -d "${CWD}/$cvsdir" ]; then
-    echo "E: missing the local CVS checkout: ${CWD}/$cvsdir"
+  if [ ! -d "${SRD}/$rsyncdir" ]; then
+    echo "E: missing the local CVS repository: ${SRD}/$rsyncdir"
+    exit 1
+  fi
+  if [ ! -d "${SRD}/$cvsdir" ]; then
+    echo "E: missing the local CVS checkout: ${SRD}/$cvsdir"
     exit 1
   fi
   if git branch -r| grep -e "\"^  ${CVS}/master\$\"" >/dev/null ; then
@@ -362,26 +359,26 @@ elif [ "$(basename `realpath .`)" = "$gitdir" -o -d "${CWD}/$gitdir" ]; then
     echo "I: on the local commit branch: \"${MASTER}\"."
   fi
   if git diff --quiet HEAD ; then
-    echo "I: all changes commited to the git repository: ${CWD}/$gitdir"
+    echo "I: all changes commited to the git repository: ${SRD}/$gitdir"
   else
-    echo "E: uncommited changes in the git repository: ${CWD}/$gitdir"
+    echo "E: uncommited changes in the git repository: ${SRD}/$gitdir"
     exit 1
   fi
   HMASTER0=`git rev-parse ${MASTER}`
   echo "I: old hash \"${MASTER}\" = $HMASTER0"
   if [ "$GITCVSCMD" = "rebase" -o "$GITCVSCMD" = "update" ]; then
-    echo "I: cd ${CWD}"
-    cd ${CWD}
+    echo "I: cd ${SRD}"
+    cd ${SRD}
     echo "I: update the local CVS mirror: $rsyncdir"
     rsync -avS --delete --delay-updates --rsh=ssh ${CVSROOT}/CVSROOT ${CVSROOT}/$MODULE $rsyncdir
     echo "I: cvsimport to the git repository: $gitdir"
-    git cvsimport -akmRv -d ${CWD}/$rsyncdir -C $gitdir -r $CVS $MODULE
-    HCVS1=`cd ${CWD}/$gitdir ;git rev-parse $CVS/master`
+    git cvsimport -akmRv -d ${SRD}/$rsyncdir -C $gitdir -r $CVS $MODULE
+    HCVS1=`cd ${SRD}/$gitdir ;git rev-parse $CVS/master`
     echo "I: new hash \"${CVS}/master\" = $HCVS1"
     echo "I: update the local CVS checkout: $cvsdir"
-    cvs -d ${CWD}/$rsyncdir checkout -P -kk -d $cvsdir $MODULE
-    echo "I: cd ${CWD}/$gitdir"
-    cd ${CWD}/$gitdir
+    cvs -d ${SRD}/$rsyncdir checkout -P -kk -d $cvsdir $MODULE
+    echo "I: cd ${SRD}/$gitdir"
+    cd ${SRD}/$gitdir
     if [ "$HCVS0" != "$HCVS1" ]; then
       if [ "$GITCVSCMD" = "rebase" ]; then
         echo "I: git rebase $CVS/master"
@@ -400,18 +397,18 @@ elif [ "$(basename `realpath .`)" = "$gitdir" -o -d "${CWD}/$gitdir" ]; then
       echo "I: git cvsexportcommit ... with commits in the \"${MASTER}\" branch"
       git cherry ${CVS}/master ${MASTER} | sed -n 's/^+ //p' | \
         xargs --no-run-if-empty -l1 \
-        git cvsexportcommit -ckpv -d :ext:$CVSROOT -w ${CWD}/$cvsdir
-      echo "I: cd ${CWD}"
-      cd ${CWD}
+        git cvsexportcommit -ckpv -d :ext:$CVSROOT -w ${SRD}/$cvsdir
+      echo "I: cd ${SRD}"
+      cd ${SRD}
       echo "I: update the local CVS mirror: $rsyncdir"
       rsync -avS --delete --delay-updates --rsh=ssh ${CVSROOT}/CVSROOT ${CVSROOT}/$MODULE $rsyncdir
       echo "I: cvsimport to the git repository: $gitdir"
-      git cvsimport -akmRv -d ${CWD}/$rsyncdir -C $gitdir -r $CVS $MODULE
-      HCVS1=`cd ${CWD}/$gitdir ;git rev-parse $CVS/master`
+      git cvsimport -akmRv -d ${SRD}/$rsyncdir -C $gitdir -r $CVS $MODULE
+      HCVS1=`cd ${SRD}/$gitdir ;git rev-parse $CVS/master`
       echo "I: new hash \"${CVS}/master\" = $HCVS1"
-      cvs -d ${CWD}/$rsyncdir checkout -P -kk -d $cvsdir $MODULE
-      echo "I: cd ${CWD}/$gitdir"
-      cd ${CWD}/$gitdir
+      cvs -d ${SRD}/$rsyncdir checkout -P -kk -d $cvsdir $MODULE
+      echo "I: cd ${SRD}/$gitdir"
+      cd ${SRD}/$gitdir
       if [ "$HCVS0" != "$HCVS1" ]; then
         echo "I: \"$CVS/master\" branch changed"
         git checkout ${MASTER}
