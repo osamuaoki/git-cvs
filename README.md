@@ -36,14 +36,15 @@ Access CVS using git (like git-svn)
               * <optarg3> : use "<optarg3>/master" instead of "cvs/master" (opt.)
             Remote CVS parameters $CVSROOT and $MODULE are the ones used as:
               $ cvs -d :ext:$CVSROOT checkout $MODULE
-            This command creates 3 directories: rsyncdir/ cvsdir/ gitdir/
+            This command creates 3 directories: rsyncdir/ cvsdir/ gitdir/ and 1
+            file: .gitcvsrc
               * rsyncdir/ : the local mirror of the CVS repository
               * cvsdir/   : the CVS checkout
               * gitdir/   : the local git repository (no CVS/* files)
                 * "cvs/master" branch : track the remote CVS repository
                 * "master" branch     : track the local changes
+              * .gitcvsrc : records the git-cvs parameter.
             Try gitk in the gitdir/ directory to see the full project history.
-            The .gitcvsrc records the git-cvs parameter.
     
     update  Update the local git repository by the latest remote CVS repository.
             For approach 1, execute this in the $MODULE directory.
