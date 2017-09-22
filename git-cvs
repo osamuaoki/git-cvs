@@ -91,6 +91,24 @@ sha1sum ${0}
 }
 
 #############################################################################
+# Check required commands (assume Debian)
+if  [ ! -x /usr/bin/git ]; then
+  echo "W: install git package"
+  exit
+fi
+if  [ ! -x /usr/lib/git-core/git-cvsimport ]; then
+  echo "W: install git-cvs package"
+  exit
+fi
+if  [ ! -x /usr/bin/rsync ]; then
+  echo "W: install rsync package"
+  exit
+fi
+if  [ ! -x /usr/bin/cvs ]; then
+  echo "W: install cvs package"
+  exit
+fi
+#############################################################################
 # parse commands (modeled after git-svn)
 case ${1} in
   D*)
