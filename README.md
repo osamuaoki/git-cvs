@@ -103,6 +103,13 @@ This gives a nice git repository with the full history.
     
     3 directories, 1 file
 
+# Required packages
+
+* git
+* git-cvs (debian package for git-cvsimport)
+* cvs
+* rsync
+
 # References for CVS <--> GIT
 
 Here are some interesting things I found on the net.
